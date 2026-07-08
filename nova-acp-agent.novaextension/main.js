@@ -2902,9 +2902,14 @@ async function resumeSessionInTerminal(sessionId) {
   // Delegate to launchClaude by temporarily setting an env var the
   // helper can read. Simpler: just exec osascript here for the two
   // supported terminals. iTerm first, then fall back to Terminal.
+  // Escape backslashes first, then double-quotes, so AppleScript string
+  // literals are always valid regardless of the command path content.
+  function escapeForAppleScript(s) {
+    return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
   var script;
   if (terminalApp === "Terminal") {
-    script = 'tell application "Terminal" to do script "' + command.replace(/"/g, '\\"') + '"\n' +
+    script = 'tell application "Terminal" to do script "' + escapeForAppleScript(command) + '"\n' +
              'tell application "Terminal" to activate';
   } else {
     // iTerm or auto — try iTerm
@@ -2913,7 +2918,7 @@ async function resumeSessionInTerminal(sessionId) {
       'tell application "iTerm"\n' +
       '  if (count of windows) = 0 then create window with default profile\n' +
       '  tell current window to create tab with default profile\n' +
-      '  tell current session of current window to write text "' + command.replace(/"/g, '\\"') + '"\n' +
+      '  tell current session of current window to write text "' + escapeForAppleScript(command) + '"\n' +
       'end tell';
   }
   try {
