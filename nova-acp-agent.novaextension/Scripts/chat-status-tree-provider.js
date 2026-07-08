@@ -33,11 +33,11 @@ class ChatStatusTreeProvider {
   getTreeItem(element) {
     const s = this.state;
     const item = new TreeItem(formatLabel(s));
-    item.identifier = "claudecode-chat-status";
+    item.identifier = "acpagent-chat-status";
     item.descriptiveText = formatDescriptive(s);
     item.tooltip = formatTooltip(s);
     item.image = pickImage(s);
-    item.command = "claudecode.openChat";
+    item.command = "acpagent.openChat";
     return item;
   }
 }

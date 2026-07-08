@@ -44,7 +44,7 @@ let currentSessionId = null;  // backend session id; changes reset session count
 // across midnight starts incrementing the new day's bucket instead of
 // continuing to write yesterday's.
 function dailyKey() {
-  return "claudecode_cost_" + new Date().toISOString().slice(0, 10);
+  return "acpagent_cost_" + new Date().toISOString().slice(0, 10);
 }
 
 function loadDailyCost() {
@@ -1240,10 +1240,10 @@ let pendingLiveFor = null;
 // Layout, model, auto-inject toggle, and the Both-mode splitter ratio
 // survive reloads. Same lenient try/catch pattern as the cost tracker.
 function uiPrefGet(key) {
-  try { return localStorage.getItem("claudecode_ui_" + key); } catch (e) { return null; }
+  try { return localStorage.getItem("acpagent_ui_" + key); } catch (e) { return null; }
 }
 function uiPrefSet(key, val) {
-  try { localStorage.setItem("claudecode_ui_" + key, String(val)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem("acpagent_ui_" + key, String(val)); } catch (e) { /* ignore */ }
 }
 
 // Pick the xterm.js theme object matching the current data-theme

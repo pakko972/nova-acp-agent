@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Static validation of claudecode-nova.novaextension/extension.json.
+ * Static validation of nova-acp-agent.novaextension/extension.json.
  *
  * Catches:
  *   - Invalid JSON
@@ -20,7 +20,7 @@ const REQUIRED_FIELDS = [
 ];
 
 const root = path.resolve(__dirname, "..");
-const extDir = path.join(root, "claudecode-nova.novaextension");
+const extDir = path.join(root, "nova-acp-agent.novaextension");
 const manifestPath = path.join(extDir, "extension.json");
 const changelogPath = path.join(extDir, "CHANGELOG.md");
 

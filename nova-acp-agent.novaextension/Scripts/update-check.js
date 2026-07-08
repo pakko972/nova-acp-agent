@@ -165,7 +165,7 @@ function fetchWithTimeout(url, ms) {
     fetch(url, {
       headers: {
         "Accept": "application/json",
-        "User-Agent": "claudecode-nova/" + (nova.extension.version || "0.0.0"),
+        "User-Agent": "nova-acp-agent/" + (nova.extension.version || "0.0.0"),
       },
     }).then(function(response) {
       if (settled) return;

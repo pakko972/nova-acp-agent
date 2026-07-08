@@ -1,5 +1,5 @@
 /**
- * Claude Code Bridge for Nova
+ * ACP Agent Bridge for Nova
  *
  * Main extension entry point. This file:
  *   1. Spawns the Node.js WebSocket server helper (ws-server.js)
@@ -10,10 +10,10 @@
  *   6. Checks the Claude Code CLI for updates (manual + 24h auto)
  */
 
-const UpdateCheck = require("./update-check.js");
-const { VersionTreeProvider } = require("./version-tree-provider.js");
-const { SessionsTreeProvider, sessionDirForWorkspace } = require("./sessions-tree-provider.js");
-const { ChatStatusTreeProvider } = require("./chat-status-tree-provider.js");
+const UpdateCheck = require("./Scripts/update-check.js");
+const { VersionTreeProvider } = require("./Scripts/version-tree-provider.js");
+const { SessionsTreeProvider, sessionDirForWorkspace } = require("./Scripts/sessions-tree-provider.js");
+const { ChatStatusTreeProvider } = require("./Scripts/chat-status-tree-provider.js");
 
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h auto-check throttle
 
@@ -85,33 +85,33 @@ let chatStatusTree = null;
 // ---------------------------------------------------------------------------
 
 exports.activate = function() {
-  console.log("Claude Code Bridge: activate() called");
+  console.log("ACP Agent Bridge: activate() called");
 
   try {
     disposables.push(
-      nova.commands.register("claudecode.start", startBridge),
-      nova.commands.register("claudecode.stop", stopBridge),
-      nova.commands.register("claudecode.restart", restartBridge),
-      nova.commands.register("claudecode.sendSelection", sendSelectionToContext),
-      nova.commands.register("claudecode.addFile", addCurrentFile),
-      nova.commands.register("claudecode.status", showStatus),
-      nova.commands.register("claudecode.launchClaude", launchClaude),
-      nova.commands.register("claudecode.activityClick", activityClickHandler),
-      nova.commands.register("claudecode.activityClear", activityClearHandler),
-      nova.commands.register("claudecode.diffAccept", diffAcceptHandler),
-      nova.commands.register("claudecode.diffReject", diffRejectHandler),
-      nova.commands.register("claudecode.diffShowDetails", diffShowDetailsHandler),
-      nova.commands.register("claudecode.sidebarRefresh", sidebarRefreshHandler),
-      nova.commands.register("claudecode.sessionsRefresh", sessionsRefreshHandler),
-      nova.commands.register("claudecode.resumeSession", resumeSessionHandler),
-      nova.commands.register("claudecode.checkForUpdates", function() { checkForUpdates(false); }),
-      nova.commands.register("claudecode.openChat", openChatHandler),
-      nova.commands.register("claudecode.setChatApiKey", setChatApiKeyHandler),
-      nova.commands.register("claudecode.clearChatApiKey", clearChatApiKeyHandler),
+      nova.commands.register("acpagent.start", startBridge),
+      nova.commands.register("acpagent.stop", stopBridge),
+      nova.commands.register("acpagent.restart", restartBridge),
+      nova.commands.register("acpagent.sendSelection", sendSelectionToContext),
+      nova.commands.register("acpagent.addFile", addCurrentFile),
+      nova.commands.register("acpagent.status", showStatus),
+      nova.commands.register("acpagent.launchAgent", launchAgent),
+      nova.commands.register("acpagent.activityClick", activityClickHandler),
+      nova.commands.register("acpagent.activityClear", activityClearHandler),
+      nova.commands.register("acpagent.diffAccept", diffAcceptHandler),
+      nova.commands.register("acpagent.diffReject", diffRejectHandler),
+      nova.commands.register("acpagent.diffShowDetails", diffShowDetailsHandler),
+      nova.commands.register("acpagent.sidebarRefresh", sidebarRefreshHandler),
+      nova.commands.register("acpagent.sessionsRefresh", sessionsRefreshHandler),
+      nova.commands.register("acpagent.resumeSession", resumeSessionHandler),
+      nova.commands.register("acpagent.checkForUpdates", function() { checkForUpdates(false); }),
+      nova.commands.register("acpagent.openChat", openChatHandler),
+      nova.commands.register("acpagent.setChatApiKey", setChatApiKeyHandler),
+      nova.commands.register("acpagent.clearChatApiKey", clearChatApiKeyHandler),
     );
-    console.log("Claude Code Bridge: commands registered");
+    console.log("ACP Agent Bridge: commands registered");
   } catch (err) {
-    console.error("Claude Code Bridge: failed to register commands:", err.message);
+    console.error("ACP Agent Bridge: failed to register commands:", err.message);
     return;
   }
 
@@ -125,12 +125,12 @@ exports.activate = function() {
   startActivityRefreshTimer();
   startGitBranchRefresh();
 
-  const autoStart = nova.config.get("claudecode.autoStart");
+  const autoStart = nova.config.get("acpagent.autoStart");
   if (autoStart !== false) {
     // Chat key resolution may need an `op read` round-trip, so startBridge is
     // now async. Fire-and-forget — no caller awaits the return.
     startBridge().catch((err) => {
-      console.error("Claude Code Bridge: startBridge() failed:", err.message, err.stack || "");
+      console.error("ACP Agent Bridge: startBridge() failed:", err.message, err.stack || "");
       showNotification("Error", `Failed to start bridge: ${err.message}`);
     });
   }
@@ -138,11 +138,11 @@ exports.activate = function() {
   // Fire-and-forget: never block activate() on a network round-trip.
   maybeAutoCheckUpdates();
 
-  console.log("Claude Code Bridge: activation complete");
+  console.log("ACP Agent Bridge: activation complete");
 };
 
 exports.deactivate = function() {
-  console.log("Claude Code Bridge: deactivating…");
+  console.log("ACP Agent Bridge: deactivating…");
   stopActivityRefreshTimer();
   stopGitBranchRefresh();
   flushActivityLog();
@@ -158,7 +158,7 @@ exports.deactivate = function() {
 // ---------------------------------------------------------------------------
 
 function resolveNodePath() {
-  const configured = nova.config.get("claudecode.nodePath");
+  const configured = nova.config.get("acpagent.nodePath");
   if (configured && configured !== "node") {
     return configured;
   }
@@ -174,14 +174,14 @@ function resolveNodePath() {
   for (const candidate of candidates) {
     try {
       if (nova.fs.stat(candidate)) {
-        console.log("Claude Code Bridge: found node at " + candidate);
+        console.log("ACP Agent Bridge: found node at " + candidate);
         return candidate;
       }
     } catch (_) {}
   }
 
   // Fallback: try bare "node" and hope it's in PATH
-  console.warn("Claude Code Bridge: no node binary found at known paths, trying 'node'");
+  console.warn("ACP Agent Bridge: no node binary found at known paths, trying 'node'");
   return "node";
 }
 
@@ -194,14 +194,14 @@ function resolveNodePath() {
 // app (Claude Desktop, Cline, etc.) via the `claudecode.chat.keychainService`
 // and `claudecode.chat.keychainAccount` config keys. Read at call time so
 // changing them in settings takes effect on the next operation.
-const DEFAULT_KEYCHAIN_SERVICE = "ca.okapi.claudecode-nova";
+const DEFAULT_KEYCHAIN_SERVICE = "ca.okapi.nova-acp-agent";
 const DEFAULT_KEYCHAIN_ACCOUNT = "anthropic-api-key";
 
-function chatKeychainService() {
-  return (nova.config.get("claudecode.chat.keychainService") || "").trim() || DEFAULT_KEYCHAIN_SERVICE;
+function agentKeychainService() {
+  return (nova.config.get("acpagent.chat.keychainService") || "").trim() || DEFAULT_KEYCHAIN_SERVICE;
 }
-function chatKeychainAccount() {
-  return (nova.config.get("claudecode.chat.keychainAccount") || "").trim() || DEFAULT_KEYCHAIN_ACCOUNT;
+function agentKeychainAccount() {
+  return (nova.config.get("acpagent.chat.keychainAccount") || "").trim() || DEFAULT_KEYCHAIN_ACCOUNT;
 }
 
 // Resolve the Anthropic API key for chat mode. Priority order :
@@ -213,69 +213,70 @@ function chatKeychainAccount() {
 // Determine which source resolveChatApiKey() would pick — used by the
 // Chat UI Status sidebar so the user can see where the key came from
 // without exposing the key itself. Order matches resolveChatApiKey.
-async function detectChatApiKeySource() {
+async function detectAgentApiKeySource() {
   const kc = await readChatKeyFromKeychain();
   if (kc) return "keychain";
-  if ((nova.config.get("claudecode.chat.apiKey1PassRef") || "").trim()) return "1password";
-  if ((nova.config.get("claudecode.chat.apiKey") || "").trim()) return "config";
+  if ((nova.config.get("acpagent.chat.apiKey1PassRef") || "").trim()) return "1password";
+  if ((nova.config.get("acpagent.chat.apiKey") || "").trim()) return "config";
   return null;
 }
 
-async function resolveChatApiKey() {
+async function resolveAgentApiKey() {
   // 1) Keychain — preferred (set via the "Set Claude Chat API Key" command)
   const kc = await readChatKeyFromKeychain();
   if (kc) return kc;
 
   // 2) 1Password CLI — only if a reference is configured
-  const opRef = (nova.config.get("claudecode.chat.apiKey1PassRef") || "").trim();
+  const opRef = (nova.config.get("acpagent.chat.apiKey1PassRef") || "").trim();
   if (opRef) {
     try {
       const key = await runOpRead(opRef);
       if (key) return key;
     } catch (err) {
-      console.warn("Claude Code Bridge: op read failed (" + err.message + ")");
+      console.warn("ACP Agent Bridge: op read failed (" + err.message + ")");
     }
   }
 
   // 3) Direct config — last-resort plain-text fallback
-  return (nova.config.get("claudecode.chat.apiKey") || "").trim();
+  return (nova.config.get("acpagent.chat.apiKey") || "").trim();
 }
 
 // Read the API key from the macOS Keychain at the configured service +
 // account. Empty string on miss/error — caller falls through to next source.
 async function readChatKeyFromKeychain() {
   try {
-    const key = await nova.credentials.getPassword(chatKeychainService(), chatKeychainAccount());
+    const key = await nova.credentials.getPassword(agentKeychainService(), agentKeychainAccount());
     return (key || "").trim();
   } catch (_) {
     return "";
   }
 }
 
-// "Set Claude Chat API Key" command — secure-input notification, stores
+// "Set Agent Chat API Key" command — secure-input notification, stores
 // the key in macOS Keychain at the configured service/account. The user
 // must restart the bridge for the new key to take effect.
 async function setChatApiKeyHandler() {
-  const svc = chatKeychainService();
-  const acct = chatKeychainAccount();
+  const svc = agentKeychainService();
+  const acct = agentKeychainAccount();
+  const backend = nova.config.get("acpagent.chat.backend") || "auto";
 
-  const req = new NotificationRequest("claudecode.setChatApiKey");
-  req.title = "Set Claude Chat API Key";
+  const req = new NotificationRequest("acpagent.setChatApiKey");
+  req.title = "Set Agent Chat API Key";
   req.body  =
-    "Paste your Anthropic API key (starts with `sk-ant-…`).\n\n" +
+    "Paste your API key for the selected backend (" + backend + ").\n\n" +
     "Will be stored in macOS Keychain at :\n" +
     "  service : " + svc + "\n" +
     "  account : " + acct + "\n\n" +
     "Restart the bridge after saving for it to take effect.";
   req.type  = "secure-input";
-  req.textInputPlaceholder = "sk-ant-...";
+  req.textInputPlaceholder = "API key…";
   req.actions = ["Save", "Cancel"];
 
   let reply;
   try {
     reply = await nova.notifications.add(req);
   } catch (err) {
-    console.warn("Claude Code Bridge: setChatApiKey notification cancelled — " + err.message);
+    console.warn("ACP Agent Bridge: setChatApiKey notification cancelled — " + err.message);
     return;
   }
 
@@ -285,12 +286,6 @@ async function setChatApiKeyHandler() {
   if (!key) {
     showNotification("Empty key", "No API key entered — nothing stored.");
     return;
-  }
-  if (!key.startsWith("sk-ant-")) {
-    showNotification(
-      "Suspicious format",
-      "The key does not start with `sk-ant-`. Stored anyway — verify it's an Anthropic API key."
-    );
   }
 
   try {
@@ -308,8 +303,8 @@ async function setChatApiKeyHandler() {
 // configured service/account. Warns explicitly so the user sees what's
 // about to be deleted (especially relevant when pointing at an external app's entry).
 async function clearChatApiKeyHandler() {
-  const svc = chatKeychainService();
-  const acct = chatKeychainAccount();
+  const svc = agentKeychainService();
+  const acct = agentKeychainAccount();
 
   try {
     await nova.credentials.removePassword(svc, acct);
@@ -352,7 +347,7 @@ function runOpRead(ref) {
 // open inside Nova as a previewable HTML wrapper (which the user can
 // then split-right via Cmd+Shift+H or drag-to-side).
 function openChatHandler() {
-  if (!nova.config.get("claudecode.chat.enabled")) {
+  if (!nova.config.get("acpagent.chat.enabled")) {
     nova.workspace.showActionPanel(
       "Chat UI is currently disabled.",
       { buttons: ["Open Settings", "Cancel"] },
@@ -363,7 +358,7 @@ function openChatHandler() {
     return;
   }
 
-  const port = nova.config.get("claudecode.chat.port") || 5180;
+  const port = nova.config.get("acpagent.chat.port") || 5180;
   const url  = "http://127.0.0.1:" + port + "/";
 
   nova.workspace.showActionPanel(
@@ -481,19 +476,19 @@ function isChatWrapperFresh(path, url) {
 
 async function startBridge() {
   if (serverProcess) {
-    console.log("Claude Code Bridge: already running");
-    showNotification("Already Running", "Claude Code Bridge is already active.");
+    console.log("ACP Agent Bridge: already running");
+    showNotification("Already Running", "ACP Agent Bridge is already active.");
     return;
   }
 
   const nodePath = resolveNodePath();
-  const portMin  = nova.config.get("claudecode.portMin") || 10000;
-  const portMax  = nova.config.get("claudecode.portMax") || 65535;
+  const portMin  = nova.config.get("acpagent.portMin") || 10000;
+  const portMax  = nova.config.get("acpagent.portMax") || 65535;
   const workspace = nova.workspace.path || "";
 
   const scriptPath = nova.path.join(nova.extension.path, "Scripts", "ws-server.js");
 
-  console.log("Claude Code Bridge: starting server");
+  console.log("ACP Agent Bridge: starting server");
   console.log("  Node: " + nodePath);
   console.log("  Script: " + scriptPath);
   console.log("  Workspace: " + workspace);
@@ -507,28 +502,28 @@ async function startBridge() {
     CC_WORKSPACE: workspace,
   };
 
-  if (nova.config.get("claudecode.chat.enabled")) {
+  if (nova.config.get("acpagent.chat.enabled")) {
     try {
-      const apiKey = await resolveChatApiKey();
-      env.CC_CHAT_ENABLED = "1";
-      env.CC_CHAT_PORT    = String(nova.config.get("claudecode.chat.port") || 5180);
-      env.CC_CHAT_MODEL   = nova.config.get("claudecode.chat.model") || "claude-sonnet-4-6";
-      // Pass the claude CLI path so chat-session.mjs can spawn it directly
-      // when running in fallback "cli" mode (no API key resolved), and
-      // so cli-session.mjs (embedded terminal panel) can launch the same
-      // binary with the same user-configured args.
-      env.CC_CLAUDE_PATH = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
-      env.CC_CLAUDE_ARGS = nova.workspace.config.get("claudecode.claudeArgs") || "";
-      env.CC_CHAT_THEME  = nova.config.get("claudecode.chat.theme") || "auto";
-      env.CC_CHAT_CLI_PERMISSION_MODE = nova.config.get("claudecode.chat.cliPermissionMode") || "acceptEdits";
+      const apiKey = await resolveAgentApiKey();
+      env.CC_CHAT_ENABLED  = "1";
+      env.CC_CHAT_PORT     = String(nova.config.get("acpagent.chat.port") || 5180);
+      env.CC_CHAT_MODEL    = nova.config.get("acpagent.chat.model") || "claude-sonnet-4-6";
+      env.CC_CHAT_BACKEND  = nova.config.get("acpagent.chat.backend") || "auto";
+      env.CC_AGENT_PATH    = nova.workspace.config.get("acpagent.agentCommand") || "claude";
+      env.CC_AGENT_ARGS    = nova.workspace.config.get("acpagent.agentArgs") || "";
+      env.CC_CHAT_THEME    = nova.config.get("acpagent.chat.theme") || "auto";
+      env.CC_CHAT_CLI_PERMISSION_MODE = nova.config.get("acpagent.chat.cliPermissionMode") || "acceptEdits";
+      // Legacy Claude lock file — written alongside the ACP manifest for
+      // backward compat so the Claude Code CLI can still discover the bridge.
+      env.CC_LEGACY_CLAUDE_LOCK = nova.config.get("acpagent.legacy.claudeLock") !== false ? "1" : "0";
 
       if (apiKey) {
-        env.ANTHROPIC_API_KEY = apiKey;
-        console.log("Claude Code Bridge: chat enabled (SDK mode), port " + env.CC_CHAT_PORT + ", model " + env.CC_CHAT_MODEL);
-        chatState.apiKeySource = await detectChatApiKeySource();
+        env.CC_CHAT_API_KEY = apiKey;
+        console.log("ACP Agent Bridge: chat enabled (backend=" + env.CC_CHAT_BACKEND + "), port " + env.CC_CHAT_PORT + ", model " + env.CC_CHAT_MODEL);
+        chatState.apiKeySource = await detectAgentApiKeySource();
       } else {
-        console.log("Claude Code Bridge: chat enabled (CLI fallback — no API key), port " + env.CC_CHAT_PORT + ", model " + env.CC_CHAT_MODEL);
-        chatState.apiKeySource = "claude-cli";
+        console.log("ACP Agent Bridge: chat enabled (CLI fallback — no API key), port " + env.CC_CHAT_PORT + ", model " + env.CC_CHAT_MODEL);
+        chatState.apiKeySource = "agent-cli";
       }
 
       chatState.state = "starting";
@@ -538,7 +533,7 @@ async function startBridge() {
       chatState.url = "http://127.0.0.1:" + chatState.port + "/";
       refreshChatStatusSidebar();
     } catch (err) {
-      console.error("Claude Code Bridge: chat API key resolution failed:", err.message);
+      console.error("ACP Agent Bridge: chat API key resolution failed:", err.message);
       chatState.state = "failed";
       chatState.lastError = err.message;
       refreshChatStatusSidebar();
@@ -556,7 +551,7 @@ async function startBridge() {
       stdio: "pipe",
     });
   } catch (err) {
-    console.error("Claude Code Bridge: failed to create Process:", err.message);
+    console.error("ACP Agent Bridge: failed to create Process:", err.message);
     showNotification("Error", "Cannot create server process: " + err.message);
     return;
   }
@@ -575,17 +570,17 @@ async function startBridge() {
       try {
         handleServerMessage(JSON.parse(line));
       } catch (err) {
-        console.error("Claude Code Bridge: failed to parse server message:", line, err.message);
+        console.error("ACP Agent Bridge: failed to parse server message:", line, err.message);
       }
     }
   });
 
   serverProcess.onStderr(function(data) {
-    console.warn("Claude Code Bridge [server stderr]: " + data.trim());
+    console.warn("ACP Agent Bridge [server stderr]: " + data.trim());
   });
 
   serverProcess.onDidExit(function(exitCode) {
-    console.log("Claude Code Bridge: server exited with code " + exitCode);
+    console.log("ACP Agent Bridge: server exited with code " + exitCode);
     serverProcess = null;
     serverPort = null;
     isConnected = false;
@@ -606,16 +601,16 @@ async function startBridge() {
 
   try {
     serverProcess.start();
-    console.log("Claude Code Bridge: process started successfully");
+    console.log("ACP Agent Bridge: process started successfully");
   } catch (err) {
-    console.error("Claude Code Bridge: process.start() failed:", err.message);
+    console.error("ACP Agent Bridge: process.start() failed:", err.message);
     showNotification("Error", "Cannot start node process: " + err.message + "\nConfigure the Node.js path in extension settings.");
     serverProcess = null;
     return;
   }
 
   // Start tracking editor selection
-  var trackSelection = nova.config.get("claudecode.trackSelection");
+  var trackSelection = nova.config.get("acpagent.trackSelection");
   if (trackSelection !== false) {
     startSelectionTracking();
   }
@@ -624,12 +619,12 @@ async function startBridge() {
   // first selection_update / getWorkspaceFolders call.
   refreshGitBranch();
 
-  showNotification("Starting", "Claude Code Bridge is starting…");
+  showNotification("Starting", "ACP Agent Bridge is starting…");
 }
 
 function stopBridge() {
   if (serverProcess) {
-    console.log("Claude Code Bridge: stopping server…");
+    console.log("ACP Agent Bridge: stopping server…");
     try { serverProcess.terminate(); } catch (_) {}
     serverProcess = null;
     serverPort = null;
@@ -637,7 +632,7 @@ function stopBridge() {
     clientCount = 0;
     stdoutBuffer = "";
     updateSidebar();
-    showNotification("Stopped", "Claude Code Bridge has been stopped.");
+    showNotification("Stopped", "ACP Agent Bridge has been stopped.");
   }
 }
 
@@ -650,10 +645,10 @@ function restartBridge() {
     try {
       startBridge();
       if (wasRunning) {
-        showNotification("Restarted", "Claude Code Bridge has been restarted.");
+        showNotification("Restarted", "ACP Agent Bridge has been restarted.");
       }
     } catch (err) {
-      console.error("Claude Code Bridge: restart failed:", err.message);
+      console.error("ACP Agent Bridge: restart failed:", err.message);
       showNotification("Restart Failed", err.message);
     }
   }, 300);
@@ -670,7 +665,7 @@ function sendToServer(obj) {
     writer.write(JSON.stringify(obj) + "\n");
     writer.releaseLock();
   } catch (err) {
-    console.error("Claude Code Bridge: failed to send to server:", err.message);
+    console.error("ACP Agent Bridge: failed to send to server:", err.message);
   }
 }
 
@@ -678,7 +673,7 @@ function handleServerMessage(msg) {
   switch (msg.type) {
     case "server_started":
       serverPort = msg.port;
-      console.log("Claude Code Bridge: server started on port " + msg.port);
+      console.log("ACP Agent Bridge: server started on port " + msg.port);
       showNotification(
         "Ready",
         "WebSocket MCP server on port " + msg.port + ".\nUse \"Launch Claude\" command, or run:\nCLAUDE_CODE_SSE_PORT=" + msg.port + " ENABLE_IDE_INTEGRATION=true claude"
@@ -689,8 +684,8 @@ function handleServerMessage(msg) {
     case "client_connected":
       isConnected = true;
       clientCount = msg.clientCount || 1;
-      console.log("Claude Code Bridge: Claude Code client connected");
-      showNotification("Connected", "Claude Code is now connected to Nova!");
+      console.log("ACP Agent Bridge: Claude Code client connected");
+      showNotification("Connected", "AI Agent is now connected to Nova!");
       updateSidebar();
       break;
 
@@ -713,7 +708,7 @@ function handleServerMessage(msg) {
       break;
 
     case "chat_started":
-      console.log("Claude Code Bridge: chat server started on port " + msg.port);
+      console.log("ACP Agent Bridge: chat server started on port " + msg.port);
       chatState.state = "running";
       chatState.port = msg.port || chatState.port;
       chatState.url = "http://127.0.0.1:" + chatState.port + "/";
@@ -726,7 +721,7 @@ function handleServerMessage(msg) {
       break;
 
     case "chat_failed":
-      console.error("Claude Code Bridge: chat server failed — " + msg.message);
+      console.error("ACP Agent Bridge: chat server failed — " + msg.message);
       chatState.state = "failed";
       chatState.lastError = msg.message || "unknown error";
       refreshChatStatusSidebar();
@@ -836,7 +831,7 @@ async function handleToolCall(msg) {
         result = { error: "Unknown tool: " + tool };
     }
   } catch (err) {
-    console.error("Claude Code Bridge: tool error [" + tool + "]:", err.message);
+    console.error("ACP Agent Bridge: tool error [" + tool + "]:", err.message);
     result = { error: err.message };
   }
 
@@ -977,8 +972,8 @@ async function toolOpenDiff(args, requestId) {
     logActivity("diff_proposed", { filePath: filePath, diffId: diffId, stats: stats });
     refreshActivitySidebar();
 
-    var notification = new NotificationRequest("claudecode-diff-" + diffId);
-    notification.title = "Claude Code Diff";
+    var notification = new NotificationRequest("acpagent-diff-" + diffId);
+    notification.title = "Agent Diff";
     notification.body = "Review changes for " + nova.path.basename(filePath) + " (" + formatStats(stats) + ").\nProposed changes are open in a new tab (" + (tabName || "proposed") + ").";
     notification.actions = ["Accept Changes", "Reject"];
 
@@ -1008,7 +1003,7 @@ function resolveDiff(diffId, accepted) {
   // Cancel any lingering notification — clicking Accept/Reject in the sidebar
   // should make the system notification disappear immediately rather than
   // dangle until the user dismisses it.
-  try { nova.notifications.cancel("claudecode-diff-" + diffId); } catch (_) {}
+  try { nova.notifications.cancel("acpagent-diff-" + diffId); } catch (_) {}
 
   var userEdited = false;
   var finalContent = diff.newContent;
@@ -1023,9 +1018,9 @@ function resolveDiff(diffId, accepted) {
       var outFile = nova.fs.open(diff.filePath, "w");
       outFile.write(finalContent);
       outFile.close();
-      console.log("Claude Code Bridge: accepted diff for " + diff.filePath + (userEdited ? " (with user edits)" : ""));
+      console.log("ACP Agent Bridge: accepted diff for " + diff.filePath + (userEdited ? " (with user edits)" : ""));
     } catch (err) {
-      console.error("Claude Code Bridge: failed to apply diff:", err.message);
+      console.error("ACP Agent Bridge: failed to apply diff:", err.message);
     }
   }
 
@@ -1984,7 +1979,7 @@ function toolCloseAllDiffTabs() {
       resolveDiff(snapshot[i].id, false);
       rejected++;
     } catch (err) {
-      console.error("Claude Code Bridge: failed to reject diff during closeAllDiffTabs:", err.message);
+      console.error("ACP Agent Bridge: failed to reject diff during closeAllDiffTabs:", err.message);
     }
   }
 
@@ -2064,7 +2059,7 @@ async function sendSelectionToContext(editor) {
   // references on Claude's side are read from disk — keep them aligned.
   if (editor.document.isDirty && editor.document.path) {
     try { await editor.save(); }
-    catch (err) { console.warn("Claude Code Bridge: auto-save before send failed:", err.message); }
+    catch (err) { console.warn("ACP Agent Bridge: auto-save before send failed:", err.message); }
   }
 
   var selection = buildSelectionData(editor);
@@ -2121,7 +2116,7 @@ function addCurrentFile() {
 
 function showStatus() {
   var lines = [
-    "Claude Code Bridge Status",
+    "ACP Agent Bridge Status",
     "------------------------",
     "Server: " + (serverProcess ? "Running" : "Stopped"),
     "Port: " + (serverPort || "N/A"),
@@ -2129,8 +2124,8 @@ function showStatus() {
     "Workspace: " + (nova.workspace.path || "N/A"),
   ];
 
-  var notification = new NotificationRequest("claudecode-status");
-  notification.title = "Claude Code Bridge";
+  var notification = new NotificationRequest("acpagent-status");
+  notification.title = "ACP Agent Bridge";
   notification.body = lines.join("\n");
   notification.actions = serverProcess ? ["Stop Bridge", "OK"] : ["Start Bridge", "OK"];
 
@@ -2198,14 +2193,14 @@ class PendingDiffsDataProvider {
         : relativeTime(d.openedAt);
       item.tooltip = buildDiffTooltip(d);
       item.collapsibleState = TreeItemCollapsibleState.Expanded;
-      item.command = "claudecode.diffShowDetails";
+      item.command = "acpagent.diffShowDetails";
       return item;
     }
     if (element.kind === "diffAction") {
       var label = element.action === "accept" ? "✓  Accept" : "✗  Reject";
       var item = new TreeItem(label);
       item.identifier = element.diffId + "_" + element.action;
-      item.command = element.action === "accept" ? "claudecode.diffAccept" : "claudecode.diffReject";
+      item.command = element.action === "accept" ? "acpagent.diffAccept" : "acpagent.diffReject";
       return item;
     }
     return null;
@@ -2240,7 +2235,7 @@ class ActivityDataProvider {
       item.identifier = e.id;
       item.descriptiveText = relativeTime(e.timestamp);
       item.tooltip = formatActivityTooltip(e);
-      item.command = "claudecode.activityClick";
+      item.command = "acpagent.activityClick";
       return item;
     }
     if (element.kind === "toolcall") {
@@ -2269,14 +2264,14 @@ function updateSidebar() {
   try {
     if (!sidebarProvider) {
       sidebarProvider = new StatusDataProvider();
-      sidebarTree = new TreeView("claudecode.sidebar.status", {
+      sidebarTree = new TreeView("acpagent.sidebar.status", {
         dataProvider: sidebarProvider,
       });
       disposables.push(sidebarTree);
     }
     sidebarTree.reload();
   } catch (err) {
-    console.error("Claude Code Bridge: sidebar update failed:", err.message);
+    console.error("ACP Agent Bridge: sidebar update failed:", err.message);
   }
 }
 
@@ -2284,21 +2279,21 @@ function ensureActivitySidebars() {
   try {
     if (!diffsProvider) {
       diffsProvider = new PendingDiffsDataProvider();
-      diffsTree = new TreeView("claudecode.sidebar.diffs", {
+      diffsTree = new TreeView("acpagent.sidebar.diffs", {
         dataProvider: diffsProvider,
       });
       disposables.push(diffsTree);
     }
     if (!activityProvider) {
       activityProvider = new ActivityDataProvider();
-      activityTree = new TreeView("claudecode.sidebar.activity", {
+      activityTree = new TreeView("acpagent.sidebar.activity", {
         dataProvider: activityProvider,
       });
       disposables.push(activityTree);
     }
     if (!versionProvider) {
       versionProvider = new VersionTreeProvider(versionState);
-      versionTree = new TreeView("claudecode.sidebar.version", {
+      versionTree = new TreeView("acpagent.sidebar.version", {
         dataProvider: versionProvider,
       });
       disposables.push(versionTree);
@@ -2306,8 +2301,8 @@ function ensureActivitySidebars() {
     if (!sessionsProvider) {
       sessionsProvider = new SessionsTreeProvider();
       try { sessionsProvider.refresh(); }
-      catch (e) { console.warn("Claude Code Bridge: initial sessions scan failed:", e.message); }
-      sessionsTree = new TreeView("claudecode.sidebar.sessions", {
+      catch (e) { console.warn("ACP Agent Bridge: initial sessions scan failed:", e.message); }
+      sessionsTree = new TreeView("acpagent.sidebar.sessions", {
         dataProvider: sessionsProvider,
       });
       disposables.push(sessionsTree);
@@ -2316,17 +2311,17 @@ function ensureActivitySidebars() {
     if (!chatStatusProvider) {
       // Hydrate from config so the row reflects intent immediately, even
       // before startBridge() has a chance to mutate the state.
-      if (nova.config.get("claudecode.chat.enabled") !== true) {
+      if (nova.config.get("acpagent.chat.enabled") !== true) {
         chatState.state = "disabled";
       }
       chatStatusProvider = new ChatStatusTreeProvider(chatState);
-      chatStatusTree = new TreeView("claudecode.sidebar.chat", {
+      chatStatusTree = new TreeView("acpagent.sidebar.chat", {
         dataProvider: chatStatusProvider,
       });
       disposables.push(chatStatusTree);
     }
   } catch (err) {
-    console.error("Claude Code Bridge: activity sidebar init failed:", err.message);
+    console.error("ACP Agent Bridge: activity sidebar init failed:", err.message);
   }
 }
 
@@ -2355,7 +2350,7 @@ function startSessionsWatcher() {
     });
     disposables.push(sessionsWatcher);
   } catch (err) {
-    console.warn("Claude Code Bridge: sessions watcher failed:", err.message);
+    console.warn("ACP Agent Bridge: sessions watcher failed:", err.message);
   }
 }
 
@@ -2365,7 +2360,7 @@ function refreshSessionsSidebar() {
     sessionsProvider.refresh();
     sessionsTree.reload();
   } catch (err) {
-    console.error("Claude Code Bridge: sessions refresh failed:", err.message);
+    console.error("ACP Agent Bridge: sessions refresh failed:", err.message);
   }
 }
 
@@ -2410,13 +2405,13 @@ function activityTick() {
 // requestId stays in pendingDiffs forever and the sidebar fills up. Set the
 // setting to 0 to disable.
 function sweepStaleDiffs() {
-  var minutes = nova.config.get("claudecode.diffTimeoutMinutes");
+  var minutes = nova.config.get("acpagent.diffTimeoutMinutes");
   if (typeof minutes !== "number") minutes = 30;
   if (minutes <= 0) return;
   var cutoff = Date.now() - minutes * 60 * 1000;
   var stale = pendingDiffs.filter(function(d) { return d.openedAt < cutoff; });
   for (var i = 0; i < stale.length; i++) {
-    console.log("Claude Code Bridge: auto-rejecting stale diff for " + stale[i].filePath);
+    console.log("ACP Agent Bridge: auto-rejecting stale diff for " + stale[i].filePath);
     try { resolveDiff(stale[i].id, false); } catch (_) {}
   }
 }
@@ -2458,7 +2453,7 @@ function refreshGitBranch() {
       shell: false,
     });
   } catch (err) {
-    console.warn("Claude Code Bridge: cannot spawn git:", err.message);
+    console.warn("ACP Agent Bridge: cannot spawn git:", err.message);
     return;
   }
   var stdout = "";
@@ -2467,7 +2462,7 @@ function refreshGitBranch() {
     if (code === 0) {
       var branch = stdout.trim();
       if (branch && branch !== gitBranch) {
-        console.log("Claude Code Bridge: git branch = " + branch);
+        console.log("ACP Agent Bridge: git branch = " + branch);
       }
       gitBranch = branch || null;
     } else {
@@ -2536,10 +2531,10 @@ function loadActivityLog() {
     if (Array.isArray(parsed.toolCallLog)) {
       toolCallLog = parsed.toolCallLog.slice(0, TOOLCALLS_MAX);
     }
-    console.log("Claude Code Bridge: restored activity log (" +
+    console.log("ACP Agent Bridge: restored activity log (" +
       activityLog.length + " events, " + toolCallLog.length + " tool calls)");
   } catch (err) {
-    console.warn("Claude Code Bridge: could not restore activity log:", err.message);
+    console.warn("ACP Agent Bridge: could not restore activity log:", err.message);
     // Bad file? Wipe it so we don't keep failing every session.
     try { nova.fs.remove(activityStorePath()); } catch (_) {}
   }
@@ -2570,7 +2565,7 @@ function flushActivityLog() {
     }));
     f.close();
   } catch (err) {
-    console.warn("Claude Code Bridge: could not persist activity log:", err.message);
+    console.warn("ACP Agent Bridge: could not persist activity log:", err.message);
   }
 }
 
@@ -2720,7 +2715,7 @@ function activityClickHandler() {
   if (e.filePath && (e.type === "file_opened" || e.type === "file_saved" ||
                      e.type === "file_added" || e.type === "selection_sent")) {
     nova.workspace.openFile(e.filePath).catch(function(err) {
-      console.error("Claude Code Bridge: openFile failed:", err.message);
+      console.error("ACP Agent Bridge: openFile failed:", err.message);
     });
     return;
   }
@@ -2729,7 +2724,7 @@ function activityClickHandler() {
 }
 
 function showActivityDetailsDialog(e) {
-  var req = new NotificationRequest("claudecode-act-" + e.id);
+  var req = new NotificationRequest("acpagent-act-" + e.id);
   req.title = formatActivityLabel(e);
   req.body = formatActivityTooltip(e);
   req.actions = e.filePath ? ["Open File", "OK"] : ["OK"];
@@ -2755,7 +2750,7 @@ function diffShowDetailsHandler() {
   if (!diffId) return;
   var diff = pendingDiffs.find(function(d) { return d.id === diffId; });
   if (!diff) return;
-  var req = new NotificationRequest("claudecode-diff-details-" + diffId);
+  var req = new NotificationRequest("acpagent-diff-details-" + diffId);
   req.title = "Diff: " + nova.path.basename(diff.filePath);
   var bodyLines = [
     diff.filePath,
@@ -2826,7 +2821,7 @@ function resumeSessionHandler() {
   if (!element || !element.sessionId) return;
 
   var sessionId = element.sessionId;
-  var claudeCmd = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
+  var claudeCmd = nova.workspace.config.get("acpagent.agentCommand") || "claude";
   var resumeCmd = claudeCmd + " --resume " + sessionId;
 
   nova.workspace.showActionPanel(
@@ -2857,7 +2852,7 @@ function resumeSessionHandler() {
 // Preview view. If no chat is open, the user opens one manually via
 // the "Open Claude Chat in Browser" command.
 function resumeSessionInChat(sessionId) {
-  if (!nova.config.get("claudecode.chat.enabled")) {
+  if (!nova.config.get("acpagent.chat.enabled")) {
     showNotification("Chat disabled", "Enable Chat UI in extension settings to resume there.");
     return;
   }
@@ -2872,7 +2867,7 @@ function resumeSessionInChat(sessionId) {
 // reconnects the /cli WS spawning `claude --resume <id>` this time.
 // Same rationale as resumeSessionInChat: we don't reopen the wrapper.
 function resumeSessionInCliPanel(sessionId) {
-  if (!nova.config.get("claudecode.chat.enabled")) {
+  if (!nova.config.get("acpagent.chat.enabled")) {
     showNotification("Chat disabled", "Enable Chat UI in extension settings to resume in the embedded CLI panel.");
     return;
   }
@@ -2890,10 +2885,10 @@ async function resumeSessionInTerminal(sessionId) {
   // Build the command line that launchClaude builds, but with the
   // extra --resume flag prepended. We can't mutate the setting just
   // for this call, so reimplement the minimal launch here.
-  var claudeCmd = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
-  var extraArgs = (nova.workspace.config.get("claudecode.claudeArgs") || "").trim();
+  var claudeCmd = nova.workspace.config.get("acpagent.agentCommand") || "claude";
+  var extraArgs = (nova.workspace.config.get("acpagent.agentArgs") || "").trim();
   var command = claudeCmd + " --resume " + sessionId + (extraArgs ? " " + extraArgs : "");
-  var terminalApp = nova.config.get("claudecode.terminalApp") || "auto";
+  var terminalApp = nova.config.get("acpagent.terminalApp") || "auto";
 
   // Inline launch via the same osascript-based flow launchClaude uses
   // for iTerm / Terminal. For "clipboard" or unknown terminals, just
@@ -2945,18 +2940,18 @@ async function resumeSessionInTerminal(sessionId) {
 // so they fall back to the clipboard path. That's documented as a Known
 // Limitation in README §6/§7's neighbourhood.
 
-async function launchClaude() {
+async function launchAgent() {
   if (!serverPort) {
     showNotification("Not Ready", "Start the bridge first. The WebSocket server is not running.");
     return;
   }
 
   var workspace = nova.workspace.path || nova.environment["HOME"];
-  var claudeCmd = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
+  var claudeCmd = nova.workspace.config.get("acpagent.agentCommand") || "claude";
   // Per-workspace extra args (e.g. "--continue", "--model claude-opus-4-7").
   // Trimmed and appended verbatim — the user is in charge of quoting if a
   // value contains spaces, just as if they typed the command themselves.
-  var claudeArgs = (nova.workspace.config.get("claudecode.claudeArgs") || "").trim();
+  var claudeArgs = (nova.workspace.config.get("acpagent.agentArgs") || "").trim();
   var envPrefix = "CLAUDE_CODE_SSE_PORT=" + serverPort + " ENABLE_IDE_INTEGRATION=true";
   var fullCommand = "cd " + shellQuote(workspace) + " && " + envPrefix + " " + claudeCmd;
   if (claudeArgs) fullCommand += " " + claudeArgs;
@@ -2981,9 +2976,9 @@ async function launchClaude() {
   var script = buildTerminalScript(app, fullCommand);
   try {
     await runAppleScript(script);
-    showNotification("Launching", "Claude Code is starting in " + app + ". The IDE bridge will connect automatically.");
+    showNotification("Launching", "Agent is starting in " + app + ". The IDE bridge will connect automatically.");
   } catch (err) {
-    console.error("Claude Code Bridge: terminal launch failed:", err.message);
+    console.error("ACP Agent Bridge: terminal launch failed:", err.message);
     nova.clipboard.writeText(fullCommand);
     showNotification(
       "Launch Failed",
@@ -2994,7 +2989,7 @@ async function launchClaude() {
 
 // Resolve the configured terminal, expanding the "auto" default.
 function resolveTerminalApp() {
-  var pref = nova.config.get("claudecode.terminalApp") || "auto";
+  var pref = nova.config.get("acpagent.terminalApp") || "auto";
   if (pref !== "auto") return pref;
   return isAppInstalled("iTerm") ? "iTerm" : "Terminal";
 }
@@ -3106,8 +3101,8 @@ function maybeAutoCheckUpdates() {
   // Without this, when the 24h throttle blocks the network call, versionState
   // stays at "unknown" and the sidebar shows "version unknown" until the next
   // manual check — even though we already know the version from disk.
-  const lastSeen = nova.config.get("claudecode.updateCheck.lastSeenVersion");
-  const lastCheckedAt = nova.config.get("claudecode.updateCheck.lastCheckedAt") || null;
+  const lastSeen = nova.config.get("acpagent.updateCheck.lastSeenVersion");
+  const lastCheckedAt = nova.config.get("acpagent.updateCheck.lastCheckedAt") || null;
   if (lastSeen) {
     versionState.state = "installed";
     versionState.currentVersion = lastSeen;
@@ -3115,16 +3110,16 @@ function maybeAutoCheckUpdates() {
     refreshVersionSidebar();
   }
 
-  if (nova.config.get("claudecode.updateCheck.autoCheck") === false) return;
+  if (nova.config.get("acpagent.updateCheck.autoCheck") === false) return;
   if (lastCheckedAt && Date.now() - lastCheckedAt < UPDATE_CHECK_INTERVAL_MS) return;
   checkForUpdates(true).catch(function(err) {
-    console.warn("Claude Code Bridge: auto-check failed:", err.message);
+    console.warn("ACP Agent Bridge: auto-check failed:", err.message);
   });
 }
 
 async function checkForUpdates(silent) {
-  const claudeCommand = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
-  const channel = nova.config.get("claudecode.updateCheck.channel") || "stable";
+  const claudeCommand = nova.workspace.config.get("acpagent.agentCommand") || "claude";
+  const channel = nova.config.get("acpagent.updateCheck.channel") || "stable";
   versionState.channel = channel;
 
   if (!silent) {
@@ -3137,7 +3132,7 @@ async function checkForUpdates(silent) {
   try {
     current = await UpdateCheck.getCurrentVersion(claudeCommand);
   } catch (err) {
-    console.error("Claude Code Bridge: getCurrentVersion failed:", err.message);
+    console.error("ACP Agent Bridge: getCurrentVersion failed:", err.message);
     versionState.state = "error";
     versionState.message = err.message;
     refreshVersionSidebar();
@@ -3149,7 +3144,7 @@ async function checkForUpdates(silent) {
   if (current.state === "not_installed") {
     versionState.state = "not_installed";
     versionState.currentVersion = null;
-    versionState.message = "Claude Code CLI was not found on PATH.";
+    versionState.message = "Agent CLI was not found on PATH.";
     refreshVersionSidebar();
     presentNotInstalled(silent);
     persistLastChecked();
@@ -3199,7 +3194,7 @@ async function checkForUpdates(silent) {
     versionState.message = null;
     refreshVersionSidebar();
     if (!silent) {
-      showNotification("Up to Date", "Claude Code is up to date (v" + current.version + ").");
+      showNotification("Up to Date", "Agent CLI is up to date (v" + current.version + ").");
     }
     return;
   }
@@ -3212,8 +3207,8 @@ async function checkForUpdates(silent) {
 }
 
 function presentUpdateAvailable(current, latest) {
-  const req = new NotificationRequest("claudecode-update-available");
-  req.title = "Claude Code Update Available";
+  const req = new NotificationRequest("acpagent-update-available");
+  req.title = "Agent CLI Update Available";
   req.body = "v" + current.version + " → v" + latest.version + ".\nUpdate will stop and restart the bridge.";
   req.actions = ["Update Now", "Release Notes", "Later"];
 
@@ -3234,14 +3229,14 @@ function presentUpdateAvailable(current, latest) {
 }
 
 async function presentNotInstalled(silent) {
-  if (silent && nova.config.get("claudecode.updateCheck.suppressNotInstalled") === true) {
+  if (silent && nova.config.get("acpagent.updateCheck.suppressNotInstalled") === true) {
     return;
   }
 
   const npmOk = !silent && (await UpdateCheck.isNpmAvailable());
 
-  const req = new NotificationRequest("claudecode-not-installed");
-  req.title = "Claude Code CLI Not Found";
+  const req = new NotificationRequest("acpagent-not-installed");
+  req.title = "Agent CLI Not Found";
   req.body = "The Claude Code CLI is not on PATH. The bridge runs without it, but you'll need it to launch Claude from Nova.";
   req.actions = ["Install Guide", "Configure Path"];
   if (npmOk) req.actions.push("Install via npm");
@@ -3264,7 +3259,7 @@ async function presentNotInstalled(silent) {
     } else if (action === "Install via npm") {
       runInstallFlow();
     } else if (action === "Don't Show Again") {
-      nova.config.set("claudecode.updateCheck.suppressNotInstalled", true);
+      nova.config.set("acpagent.updateCheck.suppressNotInstalled", true);
     }
   });
 }
@@ -3283,13 +3278,13 @@ async function runUpdateFlow(method) {
   }
 
   showNotification("Updating", "Updating Claude Code… the bridge will restart automatically.");
-  const claudeCommand = nova.workspace.config.get("claudecode.claudeCommand") || "claude";
+  const claudeCommand = nova.workspace.config.get("acpagent.agentCommand") || "claude";
 
   let result;
   try {
     result = await UpdateCheck.runUpdate(method, claudeCommand);
   } catch (err) {
-    console.error("Claude Code Bridge: update threw:", err.message);
+    console.error("ACP Agent Bridge: update threw:", err.message);
     result = { success: false, stderr: err.message };
   }
 
@@ -3308,13 +3303,13 @@ async function runUpdateFlow(method) {
     } catch (_) {}
 
     showNotification("Update Complete",
-      "Claude Code updated successfully" +
+      "Agent CLI updated successfully" +
       (versionState.currentVersion ? " to v" + versionState.currentVersion : "") + ".");
 
     if (wasRunning) {
       setTimeout(function() {
         try { startBridge(); } catch (err) {
-          console.error("Claude Code Bridge: post-update restart failed:", err.message);
+          console.error("ACP Agent Bridge: post-update restart failed:", err.message);
           showNotification("Restart Failed", "Update succeeded but bridge restart failed: " + err.message);
         }
       }, 300);
@@ -3323,8 +3318,8 @@ async function runUpdateFlow(method) {
     // Don't auto-restart the bridge on failure — leave the user in a stable
     // state so they can diagnose. The previous claude is still installed.
     const stderr = (result.stderr || "").trim();
-    const req = new NotificationRequest("claudecode-update-failed");
-    req.title = "Claude Code Update Failed";
+    const req = new NotificationRequest("acpagent-update-failed");
+    req.title = "Agent CLI Update Failed";
     req.body = stderr ? stderr.slice(0, 500) : "Update command returned a non-zero exit code.";
     req.actions = ["Copy Log", "OK"];
     nova.notifications.add(req).then(function(response) {
@@ -3353,11 +3348,11 @@ async function runInstallFlow() {
   updateInProgress = false;
 
   if (result.success) {
-    showNotification("Install Complete", "Claude Code installed. Run \"Check for Updates\" to refresh the sidebar.");
+    showNotification("Install Complete", "Agent CLI installed. Run \"Check for Updates\" to refresh the sidebar.");
     // Trigger a re-check so the sidebar updates without user action.
     checkForUpdates(true).catch(function(_) {});
   } else {
-    const req = new NotificationRequest("claudecode-install-failed");
+    const req = new NotificationRequest("acpagent-install-failed");
     req.title = "Install Failed";
     req.body = (result.stderr || "npm install exited with a non-zero code.").slice(0, 500);
     req.actions = ["Copy Log", "OK"];
@@ -3371,12 +3366,12 @@ async function runInstallFlow() {
 
 function persistLastChecked() {
   try {
-    nova.config.set("claudecode.updateCheck.lastCheckedAt", Date.now());
+    nova.config.set("acpagent.updateCheck.lastCheckedAt", Date.now());
     if (versionState.currentVersion) {
-      nova.config.set("claudecode.updateCheck.lastSeenVersion", versionState.currentVersion);
+      nova.config.set("acpagent.updateCheck.lastSeenVersion", versionState.currentVersion);
     }
   } catch (err) {
-    console.warn("Claude Code Bridge: could not persist lastCheckedAt:", err.message);
+    console.warn("ACP Agent Bridge: could not persist lastCheckedAt:", err.message);
   }
   versionState.lastCheckedAt = Date.now();
 }
@@ -3386,8 +3381,8 @@ function persistLastChecked() {
 // ---------------------------------------------------------------------------
 
 function showNotification(title, body) {
-  var req = new NotificationRequest("claudecode-" + Date.now());
-  req.title = "Claude Code: " + title;
+  var req = new NotificationRequest("acpagent-" + Date.now());
+  req.title = "ACP Agent: " + title;
   req.body = body;
   nova.notifications.add(req);
 }

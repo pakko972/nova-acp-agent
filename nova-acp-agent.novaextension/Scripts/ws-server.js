@@ -1,23 +1,23 @@
 #!/usr/bin/env node
 /**
- * Claude Code ↔ Nova — WebSocket MCP Bridge Server
- * 
+ * ACP Agent ↔ Nova — WebSocket MCP Bridge Server
+ *
  * This Node.js helper runs as a subprocess spawned by the Nova extension.
  * It implements:
  *   1. A WebSocket server (RFC 6455) on localhost
- *   2. The lock-file discovery mechanism (~/.claude/ide/<port>.lock)
+ *   2. ACP service-discovery manifest (~/.acp/ide/<port>.json) plus optional
+ *      legacy Claude lock file (~/.claude/ide/<port>.lock) for backward compat
  *   3. JSON-RPC 2.0 message routing (MCP protocol)
  *   4. Bidirectional communication with the Nova extension via stdin/stdout JSON lines
  *
- * Protocol reference: coder/claudecode.nvim PROTOCOL.md
+ * Protocol reference: coder/claudecode.nvim PROTOCOL.md (Claude Code)
+ *                     ACP standard (all other agents)
  */
 
 const http = require("http");
 const crypto = require("crypto");
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
 const net = require("net");
+const acpDiscovery = require("./acp-discovery.js");
 
 // ---------------------------------------------------------------------------
 // Configuration (passed via env or CLI args)
@@ -25,22 +25,30 @@ const net = require("net");
 const PORT_MIN  = parseInt(process.env.CC_PORT_MIN  || "10000", 10);
 const PORT_MAX  = parseInt(process.env.CC_PORT_MAX  || "65535", 10);
 const WORKSPACE = process.env.CC_WORKSPACE || process.cwd();
-const IDE_NAME  = "Nova";
+
+// Legacy Claude lock file — write it when CC_LEGACY_CLAUDE_LOCK=1 so that
+// the Claude Code CLI can still discover the bridge during the ACP migration.
+const LEGACY_CLAUDE_LOCK = process.env.CC_LEGACY_CLAUDE_LOCK === "1" ||
+                           process.env.CC_LEGACY_CLAUDE_LOCK === "true";
 
 // Chat UI (Mode B — opt-in chat panel in Nova Preview tab).
 // Enabled when CC_CHAT_ENABLED=1 is set by main.js at spawn time.
-// API key flows via ANTHROPIC_API_KEY (resolved from 1Password / Keychain
+// API key flows via CC_CHAT_API_KEY (resolved from 1Password / Keychain
 // in main.js before spawning this subprocess).
-const CHAT_ENABLED = process.env.CC_CHAT_ENABLED === "1" || process.env.CC_CHAT_ENABLED === "true";
-const CHAT_PORT    = parseInt(process.env.CC_CHAT_PORT || "5180", 10);
-const CHAT_MODEL   = process.env.CC_CHAT_MODEL || "claude-sonnet-4-6";
-const CHAT_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const CHAT_ENABLED  = process.env.CC_CHAT_ENABLED === "1" || process.env.CC_CHAT_ENABLED === "true";
+const CHAT_PORT     = parseInt(process.env.CC_CHAT_PORT || "5180", 10);
+const CHAT_MODEL    = process.env.CC_CHAT_MODEL || "claude-sonnet-4-6";
+const CHAT_API_KEY  = process.env.CC_CHAT_API_KEY || process.env.ANTHROPIC_API_KEY || "";
+const CHAT_BACKEND  = process.env.CC_CHAT_BACKEND || "auto";
 let chatHandle = null;  // { port, stop() } once chat-session.mjs is initialized
 let cliHandle = null;   // { pushResumeRequest(sessionId), stop() } once cli-session.mjs is attached
 
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
+// Keep a reference to the paths written so cleanup() can remove them.
+let _acpManifestWritten = null;   // { acpPath, claudePath }
+
 function generateAuthToken() {
   return crypto.randomUUID();
 }
@@ -56,35 +64,29 @@ function sendToNova(obj) {
 }
 
 // ---------------------------------------------------------------------------
-// Lock file management
+// Service-discovery helpers (ACP + optional legacy Claude lock)
 // ---------------------------------------------------------------------------
-function getLockDir() {
-  const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-  return path.join(configDir, "ide");
-}
 
-function writeLockFile(port, authToken) {
-  const dir = getLockDir();
-  fs.mkdirSync(dir, { recursive: true });
-  const lockPath = path.join(dir, `${port}.lock`);
-  const lockData = {
-    pid: process.pid,
-    workspaceFolders: [WORKSPACE],
-    ideName: IDE_NAME,
-    transport: "ws",
+// Write the ACP service manifest (and optionally the legacy Claude lock).
+// Returns paths written for cleanup.
+function writeServiceManifest(port, authToken, toolNamesList) {
+  const paths = acpDiscovery.writeManifest({
+    port,
     authToken,
-  };
-  fs.writeFileSync(lockPath, JSON.stringify(lockData, null, 2));
-  log("info", `Lock file written: ${lockPath}`);
-  return lockPath;
+    workspaceFolders: [WORKSPACE],
+    capabilities: toolNamesList,
+    legacy: LEGACY_CLAUDE_LOCK,
+  });
+  _acpManifestWritten = { port, legacy: LEGACY_CLAUDE_LOCK };
+  if (paths.acpPath) log("info", `ACP manifest written: ${paths.acpPath}`);
+  if (paths.claudePath) log("info", `Legacy Claude lock written: ${paths.claudePath}`);
+  return paths;
 }
 
-function removeLockFile(port) {
-  try {
-    const lockPath = path.join(getLockDir(), `${port}.lock`);
-    fs.unlinkSync(lockPath);
-    log("info", `Lock file removed: ${lockPath}`);
-  } catch (_) {}
+// Remove the ACP manifest (and legacy lock if present).
+function removeServiceManifest(port) {
+  acpDiscovery.removeManifest(port, LEGACY_CLAUDE_LOCK);
+  _acpManifestWritten = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +318,7 @@ function handleRequest(client, msg) {
       result: {
         protocolVersion: "2024-11-05",
         capabilities: { tools: {} },
-        serverInfo: { name: "nova-claudecode-bridge", version: "0.2.0" },
+        serverInfo: { name: "nova-acp-agent", version: "0.2.0" },
       },
     });
     return;
@@ -385,7 +387,7 @@ function handleNotification(client, msg) {
   const { method, params } = msg;
 
   if (method === "notifications/initialized") {
-    log("info", "Claude Code client initialized");
+    log("info", "MCP client initialized");
     sendToNova({ type: "client_connected" });
     return;
   }
@@ -577,7 +579,6 @@ function handleNovaMessage(msg) {
 // WebSocket upgrade & HTTP server
 // ---------------------------------------------------------------------------
 let serverPort = null;
-let lockFilePath = null;
 let authToken = null;
 
 async function startServer() {
@@ -592,8 +593,12 @@ async function startServer() {
   });
 
   httpServer.on("upgrade", (req, socket, head) => {
-    // Validate auth token
-    const clientAuth = req.headers["x-claude-code-ide-authorization"];
+    // Validate auth token. Accept both the ACP header (primary) and the
+    // legacy Claude Code header (backward compat) so Claude Code CLI users
+    // are not broken during the ACP migration.
+    const clientAuth =
+      req.headers["x-acp-ide-authorization"] ||
+      req.headers["x-claude-code-ide-authorization"];
     if (clientAuth !== authToken) {
       log("warn", "Rejected connection: invalid auth token");
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -650,7 +655,7 @@ async function startServer() {
     // Client connected
     const client = { socket, buffer: Buffer.alloc(0) };
     connectedClients.push(client);
-    log("info", "Claude Code client connected via WebSocket");
+    log("info", "MCP client connected via WebSocket");
     sendToNova({ type: "client_connected", clientCount: connectedClients.length });
     if (chatHandle && typeof chatHandle.pushBridgeStatus === "function") {
       chatHandle.pushBridgeStatus({ port: serverPort, clientCount: connectedClients.length });
@@ -682,7 +687,7 @@ async function startServer() {
 
     socket.on("close", (hadError) => {
       connectedClients = connectedClients.filter((c) => c !== client);
-      log("info", `Claude Code client disconnected (hadError=${hadError})`);
+      log("info", `MCP client disconnected (hadError=${hadError})`);
       sendToNova({ type: "client_disconnected", clientCount: connectedClients.length });
       if (chatHandle && typeof chatHandle.pushBridgeStatus === "function") {
         chatHandle.pushBridgeStatus({ port: serverPort, clientCount: connectedClients.length });
@@ -696,31 +701,31 @@ async function startServer() {
   });
 
   httpServer.listen(port, "127.0.0.1", async () => {
-    lockFilePath = writeLockFile(port, authToken);
+    const manifestPaths = writeServiceManifest(port, authToken, Object.keys(tools));
     log("info", `WebSocket MCP server listening on 127.0.0.1:${port}`);
     sendToNova({
       type: "server_started",
       port,
-      lockFile: lockFilePath,
+      acpManifest: manifestPaths.acpPath,
+      legacyLock:  manifestPaths.claudePath,
       authToken,
     });
 
     // Conditionally start the chat module (Mode B — opt-in chat UI).
     // Wrapped in try/catch so a chat init failure never kills the MCP server.
-    // Two-mode: SDK (with CHAT_API_KEY) or CLI subprocess fallback (no key —
-    // uses the user's existing Claude Code OAuth session).
     if (CHAT_ENABLED) {
       try {
         const chatModule = await import("./chat-session.mjs");
         chatHandle = await chatModule.init({
-          port: CHAT_PORT,
-          apiKey: CHAT_API_KEY || null,
-          model: CHAT_MODEL,
+          port:             CHAT_PORT,
+          apiKey:           CHAT_API_KEY || null,
+          model:            CHAT_MODEL,
+          backend:          CHAT_BACKEND,
           cliPermissionMode: process.env.CC_CHAT_CLI_PERMISSION_MODE || "acceptEdits",
-          claudePath: process.env.CC_CLAUDE_PATH || "claude",
+          agentPath:        process.env.CC_AGENT_PATH || "claude",
           callNovaTool,
           getBridgeInfo: () => ({
-            port: serverPort,
+            port:        serverPort,
             clientCount: connectedClients.length,
           }),
           log,
@@ -728,14 +733,14 @@ async function startServer() {
         log("info", `Chat server listening on http://127.0.0.1:${CHAT_PORT}/`);
 
         // Mount the embedded terminal panel on the same HTTP server.
-        // Lives at /cli (WebSocket only). Each connection spawns
-        // `claude` in a real PTY via node-pty.
+        // Lives at /cli (WebSocket only). Each connection spawns the
+        // configured agent binary in a real PTY via node-pty.
         try {
           const cliModule = await import("./cli-session.mjs");
           cliHandle = cliModule.attach({
-            httpServer: chatHandle.httpServer,
-            claudeCommand: process.env.CC_CLAUDE_PATH || "claude",
-            claudeArgs: process.env.CC_CLAUDE_ARGS || "",
+            httpServer:   chatHandle.httpServer,
+            agentCommand: process.env.CC_AGENT_PATH || "claude",
+            agentArgs:    process.env.CC_AGENT_ARGS || "",
             log,
           });
           log("info", "CLI terminal panel attached at /cli");
@@ -753,7 +758,7 @@ async function startServer() {
 
   // Cleanup on exit
   function cleanup() {
-    if (serverPort) removeLockFile(serverPort);
+    if (serverPort) removeServiceManifest(serverPort);
     for (const client of connectedClients) {
       try { client.socket.destroy(); } catch (_) {}
     }
@@ -765,7 +770,7 @@ async function startServer() {
 
   process.on("SIGTERM", cleanup);
   process.on("SIGINT", cleanup);
-  process.on("exit", () => { if (serverPort) removeLockFile(serverPort); });
+  process.on("exit", () => { if (serverPort) removeServiceManifest(serverPort); });
 }
 
 // ---------------------------------------------------------------------------

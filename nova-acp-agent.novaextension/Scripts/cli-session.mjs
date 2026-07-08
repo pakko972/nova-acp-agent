@@ -1,11 +1,11 @@
 // cli-session.mjs — terminal-style CLI panel served alongside the
-// chat-session HTTP server. Spawns `claude` in a real PTY (via
-// node-pty) and pipes data both ways over a WebSocket at /cli.
+// chat-session HTTP server. Spawns the configured AI agent binary in a
+// real PTY (via node-pty) and pipes data both ways over a WebSocket at /cli.
 //
 // Lifecycle :
-//   1. ws-server.js calls attach({ httpServer, claudeCommand, claudeArgs, log })
+//   1. ws-server.js calls attach({ httpServer, agentCommand, agentArgs, log })
 //   2. attach() mounts a WebSocketServer on /cli of the existing HTTP server
-//   3. Each ws connection spawns one PTY child running `claude` with the
+//   3. Each ws connection spawns one PTY child running the agent with the
 //      user-configured args; the child dies when the ws closes
 //
 // Wire format (JSON messages on the ws) :
@@ -16,7 +16,7 @@
 
 import { WebSocketServer } from "ws";
 
-export function attach({ httpServer, claudeCommand = "claude", claudeArgs = "", log = console.log }) {
+export function attach({ httpServer, agentCommand = "claude", agentArgs = "", resumeFlag = "--resume", log = console.log }) {
   // Lazy-require node-pty so a missing native build doesn't kill the
   // chat path. If load fails we surface a friendly error to clients
   // and leave the rest of the server functional.
@@ -57,7 +57,7 @@ export function attach({ httpServer, claudeCommand = "claude", claudeArgs = "", 
     cliClients.add(socket);
 
     // Optional ?session=<id> query string — when present, spawn
-    // `claude --resume <id>` so the terminal lands inside that past
+    // `<agent> --resume <id>` so the terminal lands inside that past
     // session. The frontend reconnects with this param after the
     // user picks "CLI panel" in the Nova sidebar action panel.
     let resumeSessionId = null;
@@ -92,18 +92,17 @@ export function attach({ httpServer, claudeCommand = "claude", claudeArgs = "", 
     // Tokenize the user-configured args. Simple whitespace split — good
     // enough for "--continue --model claude-opus-4-8". Users who need
     // quoted args can adjust the setting; we don't ship a shell here.
-    const args = (claudeArgs || "").trim().split(/\s+/).filter(Boolean);
+    const args = (agentArgs || "").trim().split(/\s+/).filter(Boolean);
     if (resumeSessionId) {
-      args.unshift("--resume", resumeSessionId);
+      args.unshift(resumeFlag, resumeSessionId);
       log("info", `cli: resuming session ${resumeSessionId}`);
     }
 
     // Nova's subprocess inherits a stripped PATH that typically excludes
-    // ~/.local/bin (where `claude` lives) and other user shell dirs. We
-    // extend it with the usual install locations so plain "claude"
-    // resolves without forcing the user to configure an absolute path.
+    // ~/.local/bin and other user shell dirs. Extend it with the usual
+    // install locations so a plain binary name resolves correctly.
     const env = { ...process.env, TERM: "xterm-256color" };
-    if (!claudeCommand.startsWith("/")) {
+    if (!agentCommand.startsWith("/")) {
       const home = process.env.HOME || "";
       const extra = [`${home}/.local/bin`, "/usr/local/bin", "/opt/homebrew/bin"];
       const cur = (env.PATH || "").split(":");
@@ -112,7 +111,7 @@ export function attach({ httpServer, claudeCommand = "claude", claudeArgs = "", 
 
     let child;
     try {
-      child = ptyMod.spawn(claudeCommand, args, {
+      child = ptyMod.spawn(agentCommand, args, {
         name: "xterm-256color",
         cols: 80,
         rows: 24,

@@ -1,10 +1,10 @@
 /**
  * sessions-tree-provider.js — TreeDataProvider for the "Recent Sessions"
- * sidebar section. Lists Claude Code session files for the current workspace
- * (~/.claude/projects/<encoded-cwd>/*.jsonl) sorted by mtime desc, with a
- * preview of the first real user message. Clicking an item invokes
- * `claudecode.resumeSession`, which copies `<claudeCommand> --resume <id>`
- * to the clipboard.
+ * sidebar section. Lists AI agent session files for the current workspace
+ * (~/.claude/projects/ or ~/.opencode/projects/<encoded-cwd>/*.jsonl)
+ * sorted by mtime desc, with a preview of the first real user message.
+ * Clicking an item invokes `acpagent.resumeSession`, which copies
+ * `<agentCommand> --resume <id>` to the clipboard.
  *
  * Per-session preview parsing is cached by mtime so reload() over an
  * unchanged dir doesn't re-read 30+ jsonl files.
@@ -21,52 +21,53 @@ class SessionsTreeProvider {
 
   refresh() {
     const workspacePath = nova.workspace.path;
-    const dir = sessionDirForWorkspace();
-    console.log("[sessions] refresh() — workspace.path=" + workspacePath + ", dir=" + dir);
-    if (!dir) { this._items = []; return; }
-
-    let entries;
-    try { entries = nova.fs.listdir(dir); }
-    catch (err) {
-      console.log("[sessions] listdir(" + dir + ") failed: " + (err && err.message));
-      this._items = [];
-      return;
-    }
-    console.log("[sessions] listdir returned " + entries.length + " entries; "
-      + entries.filter(n => n.endsWith(".jsonl")).length + " jsonl");
+    const dirs = sessionDirsForWorkspace();
+    console.log("[sessions] refresh() — workspace.path=" + workspacePath + ", dirs=" + dirs.map(d => d.dir).join(", "));
+    if (!dirs.length) { this._items = []; return; }
 
     const records = [];
-    for (const name of entries) {
-      if (!name.endsWith(".jsonl")) continue;
-      const sessionId = name.slice(0, -".jsonl".length);
-      const full = dir + "/" + name;
-
-      let stat;
-      try { stat = nova.fs.stat(full); }
-      catch (_) { continue; }
-      if (!stat) continue;
-
-      const mtimeMs = stat.mtime instanceof Date
-        ? stat.mtime.getTime()
-        : Number(stat.mtime) || 0;
-
-      const cached = this._cache[sessionId];
-      let preview, gitBranch;
-      if (cached && cached.mtimeMs === mtimeMs) {
-        preview = cached.preview;
-        gitBranch = cached.gitBranch;
-      } else {
-        const parsed = readFirstUserMessage(full);
-        preview = parsed.preview;
-        gitBranch = parsed.gitBranch;
-        this._cache[sessionId] = { mtimeMs, preview, gitBranch };
+    for (const { dir, agent } of dirs) {
+      let entries;
+      try { entries = nova.fs.listdir(dir); }
+      catch (err) {
+        // Directory doesn't exist yet — that's fine, skip it.
+        continue;
       }
 
-      records.push({ sessionId, mtimeMs, preview, gitBranch });
+      for (const name of entries) {
+        if (!name.endsWith(".jsonl")) continue;
+        const sessionId = name.slice(0, -".jsonl".length);
+        const full = dir + "/" + name;
+
+        let stat;
+        try { stat = nova.fs.stat(full); }
+        catch (_) { continue; }
+        if (!stat) continue;
+
+        const mtimeMs = stat.mtime instanceof Date
+          ? stat.mtime.getTime()
+          : Number(stat.mtime) || 0;
+
+        const cacheKey = agent + ":" + sessionId;
+        const cached = this._cache[cacheKey];
+        let preview, gitBranch;
+        if (cached && cached.mtimeMs === mtimeMs) {
+          preview = cached.preview;
+          gitBranch = cached.gitBranch;
+        } else {
+          const parsed = readFirstUserMessage(full);
+          preview = parsed.preview;
+          gitBranch = parsed.gitBranch;
+          this._cache[cacheKey] = { mtimeMs, preview, gitBranch };
+        }
+
+        records.push({ sessionId, mtimeMs, preview, gitBranch, agent });
+      }
     }
 
     records.sort((a, b) => b.mtimeMs - a.mtimeMs);
     this._items = records;
+    console.log("[sessions] " + this._items.length + " sessions found across all agent dirs");
   }
 
   getChildren(element) {
@@ -80,32 +81,47 @@ class SessionsTreeProvider {
     item.identifier = element.sessionId;
     // Surface the branch inline next to the time — disambiguates sessions
     // when the user has many on the same workspace across feature branches.
+    const agentBadge = element.agent && element.agent !== "claude" ? " [" + element.agent + "]" : "";
     item.descriptiveText = element.gitBranch
-      ? element.gitBranch + "  ·  " + relativeTime(element.mtimeMs)
-      : relativeTime(element.mtimeMs);
+      ? element.gitBranch + agentBadge + "  ·  " + relativeTime(element.mtimeMs)
+      : agentBadge ? agentBadge.trim() + "  ·  " + relativeTime(element.mtimeMs) : relativeTime(element.mtimeMs);
 
     const tooltipLines = [];
     tooltipLines.push("Session: " + element.sessionId);
+    if (element.agent) tooltipLines.push("Agent: " + element.agent);
     if (element.gitBranch) tooltipLines.push("Branch: " + element.gitBranch);
     tooltipLines.push("Last activity: " + new Date(element.mtimeMs).toLocaleString());
     tooltipLines.push("Click to choose where to resume (chat / CLI panel / terminal / clipboard).");
     item.tooltip = tooltipLines.join("\n");
 
     item.image = "__builtin.path.action";
-    item.command = "claudecode.resumeSession";
+    item.command = "acpagent.resumeSession";
     return item;
   }
 }
 
-function sessionDirForWorkspace() {
+/**
+ * Return all candidate session directories for the current workspace,
+ * across all known agent project stores.
+ */
+function sessionDirsForWorkspace() {
   const workspace = nova.workspace.path;
-  if (!workspace) return null;
+  if (!workspace) return [];
   const home = nova.environment["HOME"];
-  if (!home) return null;
-  // Claude Code encodes the absolute cwd into a single directory name by
-  // replacing every "/" with "-" (so the leading slash becomes a leading "-").
+  if (!home) return [];
+  // Agents encode the absolute cwd into a single directory name by
+  // replacing every "/" with "-" (leading slash → leading "-").
   const encoded = workspace.replace(/\//g, "-");
-  return home + "/.claude/projects/" + encoded;
+  return [
+    { dir: home + "/.claude/projects/"   + encoded, agent: "claude"   },
+    { dir: home + "/.opencode/projects/" + encoded, agent: "opencode" },
+  ];
+}
+
+// For backward compat — returns the Claude session dir for this workspace.
+function sessionDirForWorkspace() {
+  const dirs = sessionDirsForWorkspace();
+  return dirs.length ? dirs[0].dir : null;
 }
 
 // Read the JSONL line-by-line and return the first message of type "user"
@@ -176,4 +192,4 @@ function relativeTime(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
-module.exports = { SessionsTreeProvider, sessionDirForWorkspace };
+module.exports = { SessionsTreeProvider, sessionDirsForWorkspace, sessionDirForWorkspace };

@@ -1,11 +1,13 @@
-// list-sessions.mjs — read Claude Code's per-workspace session log
-// dir (~/.claude/projects/<encoded-cwd>/*.jsonl), parse just enough
-// metadata for a "Resume…" picker, and return the list sorted by
-// recency. Shares the encoding convention with
-// sessions-tree-provider.js (the Nova sidebar).
+// session-store.mjs — read per-workspace session log directories for
+// supported AI agents, parse just enough metadata for a "Resume…" picker,
+// and return the list sorted by recency.
+//
+// Supports:
+//   - Claude / Anthropic:  ~/.claude/projects/<encoded-cwd>/*.jsonl
+//   - OpenCode:            ~/.opencode/projects/<encoded-cwd>/*.jsonl
 //
 // Each .jsonl entry's filename (sans extension) IS the session_id —
-// that's what `claude --resume <id>` consumes.
+// that's what `<agent> --resume <id>` consumes.
 
 import { readdir, stat, open } from "fs/promises";
 import { join } from "path";
@@ -17,14 +19,35 @@ const MAX_SCAN_LINES = 200;       // bound the preview parse cost
 const PREVIEW_MAX_CHARS = 80;
 
 function encodedCwd(cwd) {
-  // Claude Code encodes the absolute cwd into a single dir name by
+  // Claude Code / OpenCode encode the absolute cwd into a single dir name by
   // replacing every "/" with "-" (so the leading slash becomes "-").
   return (cwd || "").replace(/\//g, "-");
 }
 
+/**
+ * Return all possible session directories for the given cwd, checking
+ * both the Claude and OpenCode project directories.
+ * @param {string} cwd
+ * @returns {Array<{dir: string, agent: string}>}
+ */
+function sessionDirsFor(cwd) {
+  if (!cwd) return [];
+  const encoded = encodedCwd(cwd);
+  const home = homedir();
+  return [
+    { dir: join(home, ".claude",   "projects", encoded), agent: "claude"   },
+    { dir: join(home, ".opencode", "projects", encoded), agent: "opencode" },
+  ];
+}
+
+// For backward compat: single-dir helper used by streamSessionTranscript
+// (which is Claude-format specific). Try Claude first, fall back to OpenCode.
 function sessionDirFor(cwd) {
   if (!cwd) return null;
-  return join(homedir(), ".claude", "projects", encodedCwd(cwd));
+  const dirs = sessionDirsFor(cwd);
+  // Return the Claude dir by default; callers that need multi-agent should
+  // use listSessions directly.
+  return dirs[0]?.dir ?? null;
 }
 
 // Read the first real user message from a session jsonl (skipping
@@ -184,26 +207,28 @@ function truncate(s, n) {
 /**
  * List sessions for the given workspace cwd, sorted by mtime desc.
  * Returns at most `limit` entries (default 30) — newer first.
+ * Checks both the Claude and OpenCode project directories.
  *
- * Each entry: { sessionId, mtimeMs, preview, gitBranch }.
+ * Each entry: { sessionId, mtimeMs, preview, gitBranch, agent }.
  */
 export async function listSessions(cwd, { limit = 30 } = {}) {
-  const dir = sessionDirFor(cwd);
-  if (!dir) return [];
-
-  let entries;
-  try { entries = await readdir(dir); }
-  catch { return []; }
-
+  const dirs = sessionDirsFor(cwd);
   const records = [];
-  for (const name of entries) {
-    if (!name.endsWith(".jsonl")) continue;
-    const sessionId = name.slice(0, -".jsonl".length);
-    const full = join(dir, name);
-    let st;
-    try { st = await stat(full); }
+
+  for (const { dir, agent } of dirs) {
+    let entries;
+    try { entries = await readdir(dir); }
     catch { continue; }
-    records.push({ sessionId, full, mtimeMs: st.mtimeMs });
+
+    for (const name of entries) {
+      if (!name.endsWith(".jsonl")) continue;
+      const sessionId = name.slice(0, -".jsonl".length);
+      const full = join(dir, name);
+      let st;
+      try { st = await stat(full); }
+      catch { continue; }
+      records.push({ sessionId, full, mtimeMs: st.mtimeMs, agent });
+    }
   }
 
   records.sort((a, b) => b.mtimeMs - a.mtimeMs);

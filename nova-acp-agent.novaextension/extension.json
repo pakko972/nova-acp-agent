@@ -1,0 +1,361 @@
+{
+  "identifier": "ca.okapi.nova-acp-agent",
+  "name": "ACP Agent",
+  "organization": "okapi-ca",
+  "description": "AI-harness-agnostic IDE bridge for Nova, implementing the Agent Communication Protocol (ACP). Wires any ACP-compatible AI agent (Claude Code, OpenCode, Codex, etc.) to your editor via MCP: selection sharing, inline diff review, and file ops. An opt-in chat panel can run the configured AI agent via its SDK or CLI — slash commands, live model picker, streaming reasoning, and a real in-window terminal powered by node-pty. Resume any past session from the sidebar in one click.",
+  "version": "0.22.6",
+  "categories": ["commands", "sidebars"],
+  "license": "MIT",
+  "repository": "https://github.com/okapi-ca/claudecode-nova",
+  "bugs": "https://github.com/okapi-ca/claudecode-nova/issues",
+  "min_runtime": "10.0",
+
+  "main": "main.js",
+
+  "activationEvents": ["*"],
+
+  "entitlements": {
+    "process": true,
+    "filesystem": "readwrite",
+    "requests": true,
+    "clipboard": true
+  },
+
+
+  "commands": {
+    "editor": [
+      {
+        "title": "Send Selection to Agent",
+        "command": "acpagent.sendSelection",
+        "when": "editorHasSelection",
+        "shortcut": "cmd-ctrl-l"
+      }
+    ],
+    "extensions": [
+      {
+        "title": "Start ACP Agent Bridge",
+        "command": "acpagent.start"
+      },
+      {
+        "title": "Stop ACP Agent Bridge",
+        "command": "acpagent.stop"
+      },
+      {
+        "title": "Restart ACP Agent Bridge",
+        "command": "acpagent.restart"
+      },
+      {
+        "title": "Add Current File to Agent",
+        "command": "acpagent.addFile",
+        "shortcut": "cmd-ctrl-a"
+      },
+      {
+        "title": "Show ACP Agent Status",
+        "command": "acpagent.status"
+      },
+      {
+        "title": "Launch Agent (with IDE integration)",
+        "command": "acpagent.launchAgent"
+      },
+      {
+        "title": "Open AI Chat in Browser",
+        "command": "acpagent.openChat"
+      },
+      {
+        "title": "Set Chat API Key (Keychain)",
+        "command": "acpagent.setChatApiKey"
+      },
+      {
+        "title": "Clear Chat API Key (Keychain)",
+        "command": "acpagent.clearChatApiKey"
+      },
+      {
+        "title": "Check for Agent Updates",
+        "command": "acpagent.checkForUpdates"
+      }
+    ]
+  },
+
+  "sidebars": [
+    {
+      "id": "acpagent.sidebar",
+      "name": "ACP Agent",
+      "smallImage": "claude-icon-small",
+      "largeImage": "claude-icon-large",
+      "sections": [
+        {
+          "id": "acpagent.sidebar.status",
+          "name": "Status",
+          "placeholderText": "ACP Agent is not connected.",
+          "headerCommands": [
+            {
+              "title": "Start",
+              "image": "__builtin.play",
+              "command": "acpagent.start",
+              "tooltip": "Start ACP Agent Bridge"
+            },
+            {
+              "title": "Stop",
+              "image": "__builtin.stop",
+              "command": "acpagent.stop",
+              "tooltip": "Stop ACP Agent Bridge"
+            }
+          ]
+        },
+        {
+          "id": "acpagent.sidebar.diffs",
+          "name": "Pending Diffs",
+          "placeholderText": "No diffs awaiting review.",
+          "headerCommands": [
+            {
+              "title": "Refresh",
+              "image": "__builtin.refresh",
+              "command": "acpagent.sidebarRefresh",
+              "tooltip": "Refresh sidebar"
+            }
+          ]
+        },
+        {
+          "id": "acpagent.sidebar.activity",
+          "name": "Activity",
+          "placeholderText": "No activity yet.",
+          "headerCommands": [
+            {
+              "title": "Refresh",
+              "image": "__builtin.refresh",
+              "command": "acpagent.sidebarRefresh",
+              "tooltip": "Refresh sidebar"
+            },
+            {
+              "title": "Clear",
+              "image": "__builtin.remove",
+              "command": "acpagent.activityClear",
+              "tooltip": "Clear activity log"
+            }
+          ]
+        },
+        {
+          "id": "acpagent.sidebar.sessions",
+          "name": "Recent Sessions",
+          "placeholderText": "No saved sessions for this workspace.",
+          "headerCommands": [
+            {
+              "title": "Refresh",
+              "image": "__builtin.refresh",
+              "command": "acpagent.sessionsRefresh",
+              "tooltip": "Rescan session directories for this workspace"
+            }
+          ]
+        },
+        {
+          "id": "acpagent.sidebar.version",
+          "name": "Agent Version",
+          "placeholderText": "Checking…",
+          "headerCommands": [
+            {
+              "title": "Check",
+              "image": "__builtin.refresh",
+              "command": "acpagent.checkForUpdates",
+              "tooltip": "Check for agent updates"
+            }
+          ]
+        },
+        {
+          "id": "acpagent.sidebar.chat",
+          "name": "Chat UI Status",
+          "placeholderText": "Chat UI status loading…",
+          "headerCommands": [
+            {
+              "title": "Open",
+              "image": "__builtin.path.action",
+              "command": "acpagent.openChat",
+              "tooltip": "Open the AI chat UI in your browser"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "config": [
+    {
+      "key": "acpagent.portMin",
+      "title": "Port Range (Min)",
+      "type": "number",
+      "default": 10000
+    },
+    {
+      "key": "acpagent.portMax",
+      "title": "Port Range (Max)",
+      "type": "number",
+      "default": 65535
+    },
+    {
+      "key": "acpagent.autoStart",
+      "title": "Auto-start on activation",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "acpagent.trackSelection",
+      "title": "Track editor selection",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "acpagent.nodePath",
+      "title": "Path to Node.js",
+      "type": "string",
+      "default": "node",
+      "description": "Path to the node executable used for the WebSocket server helper."
+    },
+    {
+      "key": "acpagent.diffTimeoutMinutes",
+      "title": "Auto-reject pending diffs after (minutes)",
+      "type": "number",
+      "default": 30,
+      "description": "If a diff stays in the Pending Diffs queue longer than this, the bridge auto-rejects it so the agent isn't stuck waiting on a dead requestId. Set to 0 to disable."
+    },
+    {
+      "key": "acpagent.terminalApp",
+      "title": "Terminal Application",
+      "type": "enum",
+      "values": [
+        ["auto", "Auto-detect (iTerm if installed, otherwise Terminal)"],
+        ["iTerm", "iTerm2"],
+        ["Terminal", "Terminal.app"],
+        ["clipboard", "Just copy the command to clipboard"]
+      ],
+      "default": "auto",
+      "description": "Where the \"Launch Agent\" command opens the CLI. Other terminals (Warp, Ghostty, Hyper) fall back to clipboard — choose \"clipboard\" explicitly to keep the old behaviour."
+    },
+    {
+      "key": "acpagent.updateCheck.autoCheck",
+      "title": "Auto-check for agent updates",
+      "type": "boolean",
+      "default": true,
+      "description": "Check daily for new agent CLI versions when the extension activates. Only shows a notification when an update is available."
+    },
+    {
+      "key": "acpagent.updateCheck.channel",
+      "title": "Update channel",
+      "type": "enum",
+      "values": [
+        ["stable", "Stable (npm latest)"],
+        ["next", "Next (npm @next pre-releases)"]
+      ],
+      "default": "stable",
+      "description": "Which npm dist-tag to compare against. \"next\" surfaces pre-release versions."
+    },
+    {
+      "key": "acpagent.chat.enabled",
+      "title": "Enable Chat UI (experimental)",
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in to the in-browser chat UI. When enabled, a chat server starts on the configured port; open the URL in Safari/Firefox or in Nova's Preview tab. Independent from the existing CLI bridge mode."
+    },
+    {
+      "key": "acpagent.chat.backend",
+      "title": "Chat backend",
+      "type": "enum",
+      "values": [
+        ["auto", "Auto-detect (Anthropic SDK if API key present, otherwise CLI)"],
+        ["anthropic", "Claude / Anthropic SDK"],
+        ["opencode", "OpenCode CLI"],
+        ["codex", "OpenAI Codex CLI"]
+      ],
+      "default": "auto",
+      "description": "Which AI backend the chat UI uses. \"Auto\" selects the Anthropic SDK when an API key is configured, otherwise falls back to the configured agent CLI. Explicit selections override this logic."
+    },
+    {
+      "key": "acpagent.chat.keychainService",
+      "title": "Keychain service (advanced — point to an existing entry from another app)",
+      "type": "string",
+      "default": "ca.okapi.nova-acp-agent",
+      "description": "macOS Keychain service identifier used to read/write the chat API key. Default is this extension's own namespace. Set this to another service (e.g. `com.anthropic.claudefordesktop` or `Cline`) if you already have an API key stored by another tool — both `Set` and `Clear` commands will then operate on that entry, so use with care."
+    },
+    {
+      "key": "acpagent.chat.keychainAccount",
+      "title": "Keychain account name",
+      "type": "string",
+      "default": "anthropic-api-key",
+      "description": "Account name within the Keychain service above. Together they form the (service, account) pair that uniquely identifies the entry."
+    },
+    {
+      "key": "acpagent.chat.apiKey1PassRef",
+      "title": "API Key — 1Password reference (optional)",
+      "type": "string",
+      "default": "",
+      "description": "1Password CLI reference like `op://Private/Anthropic API Key/credential`. Requires an active `op signin` session; expires after ~30 min. The macOS Keychain (set via 'Set Chat API Key' command) is the recommended source — persistent, no session expiry."
+    },
+    {
+      "key": "acpagent.chat.apiKey",
+      "title": "API Key — direct (last-resort fallback)",
+      "type": "string",
+      "default": "",
+      "description": "Plain-text API key — used only if both the Keychain AND 1Password reference are empty. Stored in Nova settings (not encrypted at rest). Prefer the Keychain via 'Set Chat API Key' command."
+    },
+    {
+      "key": "acpagent.chat.theme",
+      "title": "Chat UI theme",
+      "type": "enum",
+      "values": [
+        ["auto", "Auto (follow macOS appearance)"],
+        ["dark", "Dark (always)"],
+        ["light", "Light (always)"]
+      ],
+      "default": "auto",
+      "description": "Nova does not expose its current theme to extensions. If your Nova is locked to a dark theme but macOS is in light mode (or vice-versa), set this to match your Nova theme. \"Auto\" follows the macOS appearance via prefers-color-scheme."
+    },
+    {
+      "key": "acpagent.chat.model",
+      "title": "Chat model",
+      "type": "string",
+      "default": "claude-sonnet-4-6",
+      "description": "Model identifier used by the chat UI. The valid values depend on the selected backend. For Anthropic: claude-sonnet-4-6, claude-haiku-4-5, claude-opus-4-7, etc. For OpenCode or Codex: consult their respective documentation."
+    },
+    {
+      "key": "acpagent.chat.port",
+      "title": "Chat UI port",
+      "type": "number",
+      "default": 5180,
+      "description": "Fixed port for the chat HTTP server. Configure Nova's Project Settings → Preview URL to http://127.0.0.1:<port>/ to use the chat UI inside the Preview tab."
+    },
+    {
+      "key": "acpagent.chat.cliPermissionMode",
+      "title": "Chat CLI permission mode (no-API-key fallback)",
+      "type": "enum",
+      "values": [
+        ["acceptEdits", "Accept edits — chat can create/modify files, but not run shell commands"],
+        ["bypassPermissions", "Bypass all — chat can edit files AND run shell commands (most powerful, least safe)"],
+        ["default", "Read-only — chat can read/answer but never modify files"]
+      ],
+      "default": "acceptEdits",
+      "description": "Permission mode passed to the agent CLI when the chat runs in CLI fallback mode (no API key). In non-interactive mode the default is read-only; `acceptEdits` (recommended) auto-approves file edits."
+    },
+    {
+      "key": "acpagent.legacy.claudeLock",
+      "title": "Write legacy Claude Code lock file",
+      "type": "boolean",
+      "default": true,
+      "description": "Write the legacy ~/.claude/ide/<port>.lock file in addition to the ACP service manifest. Keep enabled if you use Claude Code CLI alongside other ACP agents — it lets the Claude Code CLI discover the bridge. Disable once you have fully migrated to ACP-native agents."
+    }
+  ],
+
+  "configWorkspace": [
+    {
+      "key": "acpagent.agentCommand",
+      "title": "Agent CLI command",
+      "type": "string",
+      "default": "claude",
+      "description": "Command to launch the AI agent CLI (e.g. claude, opencode, codex)."
+    },
+    {
+      "key": "acpagent.agentArgs",
+      "title": "Extra agent CLI arguments",
+      "type": "string",
+      "default": "",
+      "description": "Arguments appended after the agent command on launch (e.g. \"--continue\", \"--model claude-opus-4-7\", \"--dangerously-skip-permissions\"). Leave blank for default behaviour."
+    }
+  ]
+}

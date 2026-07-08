@@ -1,6 +1,6 @@
 /**
  * version-tree-provider.js — single-item TreeDataProvider for the sidebar
- * section that surfaces the current Claude Code CLI version + state.
+ * section that surfaces the current AI agent CLI version + state.
  *
  * State shape (set by main.js, read by the provider):
  *   {
@@ -32,11 +32,11 @@ class VersionTreeProvider {
   getTreeItem(element) {
     const s = this.state;
     const item = new TreeItem(formatLabel(s));
-    item.identifier = "claudecode-version";
+    item.identifier = "acpagent-version";
     item.descriptiveText = formatDescriptive(s);
     item.tooltip = formatTooltip(s);
     item.image = pickImage(s);
-    item.command = "claudecode.checkForUpdates";
+    item.command = "acpagent.checkForUpdates";
     return item;
   }
 }
@@ -46,18 +46,18 @@ function formatLabel(s) {
     case "checking":
       return "Checking for updates…";
     case "up_to_date":
-      return "Claude Code " + s.currentVersion + " (up to date)";
+      return "Agent CLI " + s.currentVersion + " (up to date)";
     case "update_available":
-      return "Claude Code " + s.currentVersion + " → " + s.latestVersion;
+      return "Agent CLI " + s.currentVersion + " → " + s.latestVersion;
     case "installed":
-      return "Claude Code " + (s.currentVersion || "?");
+      return "Agent CLI " + (s.currentVersion || "?");
     case "not_installed":
-      return "Claude Code: not installed";
+      return "Agent CLI: not installed";
     case "error":
-      return "Claude Code: check failed";
+      return "Agent CLI: check failed";
     case "unknown":
     default:
-      return "Claude Code: version unknown";
+      return "Agent CLI: version unknown";
   }
 }
 
